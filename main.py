@@ -2,11 +2,13 @@ import re
 
 import numpy as np
 import pandas as pd
+from matplotlib import pyplot as plt
 from sklearn import metrics, svm, datasets
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import roc_curve, auc
 from sklearn.model_selection import train_test_split, KFold
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, label_binarize
 
 pd.set_option('display.width', 256)
 
@@ -258,23 +260,44 @@ for dataset in datasets:
 
     clf_list = [
         RandomForestClassifier(random_state=1, max_depth=15, n_estimators=500, min_samples_split=8, min_samples_leaf=2),
-        svm.SVC(),
+        svm.SVC(probability=True),
         KNeighborsClassifier(n_neighbors=3),
     ]
 
     for clf in clf_list:
         print(clf.__class__)
-        n_splits = 10
+        n_splits = 5
         kf = KFold(n_splits=n_splits)
         scores_sum = 0
+        i = 1
         for train_index, test_index in kf.split(X):
             X_train, X_test = X[train_index], X[test_index]
             y_train, y_test = y[train_index], y[test_index]
             clf.fit(X_train, y_train)
-            y_pred = clf.predict(X_valid)
-            score = metrics.accuracy_score(y_valid, y_pred)
+            y_pred = clf.predict(X_test)
+            score = metrics.accuracy_score(y_test, y_pred)
             scores_sum += score
 
-        print(scores_sum / n_splits)
+            y_score = clf.predict_proba(X_valid)
+            y_lb_valid = label_binarize(y_valid, classes=range(len(np.unique(dataset['Y']))))
+            n_classes = y_lb_valid.shape[1]
+            if n_classes == 1:
+                fpr, tpr, _ = roc_curve(y_valid, y_score[:, 1])
+            else:
+                fpr, tpr, _ = roc_curve(y_lb_valid.ravel(), y_score.ravel())
+
+            roc_auc = auc(fpr, tpr)
+            plt.plot(fpr, tpr, lw=1, label='ROC fold %d (AUC = %0.2f)' % (i, roc_auc))
+
+        y_pred = clf.predict(X_valid)
+        score = metrics.accuracy_score(y_valid, y_pred)
+        print('K-Fold score', scores_sum / n_splits)
+        print('Valid score', score)
+
+        plt.title(dataset['Name'] + str(clf.__class__))
+        plt.ylabel('True Positive Rate')
+        plt.xlabel('False Positive Rate')
+        plt.legend()
+        plt.show()
 
     print('=' * 40)
